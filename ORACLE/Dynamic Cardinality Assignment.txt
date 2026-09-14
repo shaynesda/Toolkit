@@ -1,0 +1,68 @@
+Dynamic Cardinality Assignment
+
+1. Cardinality function
+
+
+CREATE OR REPLACE package body #NAME#_utilities
+as
+/* Get cardinality scale used to define the midpoint for an imputed object
+
+Example function call -
+   l_cardinality :=  #name#_utilities.get_cardinality_scale(cardinality(p_block_id));
+
+where cardinality(p_block_id) defines the number of elements in the object
+l_cardinality returns the suggested cardinality size to be inputted in the SQL
+
+The SQL must be converted to dynamic sql to pass in the cardinality hint 
+
+This will allow the optimizer processing the SQL using this returned cardinality value to have three different execution
+plans for when the cardinality is 1-0, 10-99, 100-000 (etc) should it identify this is what is required.
+
+Example inputs and outputs
+Input p_cardinality        Output
+                10             33
+               100            333
+              1000           3333 
+            100000          33333
+           1000000         333333
+*/
+function get_cardinality_scale(
+     p_cardinality integer)
+return integer
+is
+   c_base   constant integer := 10;
+   c_middle constant integer := 3;
+ begin
+   return
+     case
+       when nvl(p_cardinality,0) <= 0
+       then 0
+       else trunc( power(c_base, (floor( log( c_base, p_cardinality ) ) +1 ))/ c_middle)
+     end;
+   end get_cardinality_scale;
+  end #name#_utlities;
+/
+
+
+2. Call procedure to get_cardinality_scale
+
+procedure #inserting_data_proc# (
+       p_input_id in input_of_table_type)
+as
+  l_sql         varchar2 (4000);
+  l_sql_text    varchar2 (4000);
+  l_cardinality number;
+begin
+     l_sql :=
+          'INSERT INTO #INSERT_Table_name# (column1, column2)
+                (select /* cardinality (crs, replace_for_cardinality) */
+                      crs.column1, column2
+                    from table (:p_input_id) crs
+                   join table a
+                     ON (a.table_id = crs.table_id)'   
+    l_cardinality := #name#_utilities.get_cardinality_scale(cardinality (p_input_id));
+    l_sql_text := replace (l_sql, 'replace_for_cardinality', l_cardinality);
+
+    execute immediate l_sql_text using p_input_id;
+end inserting_data_prod
+

@@ -1,0 +1,6 @@
+1. Connect to GitHub (create token in GH for the connection)
+2. Create a Fork in GitHub for the project
+3. Create an API Integration object to GitHub using role ACCOUNTADMIN
+4. Create a workspace in SNF that is connected to your Git repository (create secret and connect to git)
+5. Setup Snowflake Notebook (Jupiter notebook)
+6. Connect to weather data on SNF Marketplace (as an external data share).
