@@ -1,0 +1,673 @@
+-- Order Attribute STG Object
+USE AM_DL_STAGING.COMMON;
+
+select * from 
+
+CREATE OR REPLACE TABLE  BBG_TCA_ORDER_ATTRIBUTE_STG (
+	FILE_NAME    VARCHAR(500),
+	FILE_ROW_NBR NUMBER(38,0),
+	FILE_CONTENT VARIANT,
+	INSERT_TMSTMP TIMESTAMP
+);
+
+GRANT SELECT ON TABLE BBG_TCA_ORDER_ATTRIBUTE_STG TO ROLE AM_DL_STAGING_COMMON_RR_RL;
+GRANT ALL ON TABLE BBG_TCA_ORDER_ATTRIBUTE_STG TO ROLE AM_DL_STAGING_COMMON_RW_RL;
+GRANT OWNERSHIP ON TABLE  BBG_TCA_ORDER_ATTRIBUTE_STG TO ROLE AM_DL_STAGING_COMMON_DDL_RL COPY CURRENT GRANTS;
+
+
+
+-- Order Attribute Pipe
+
+drop pipe AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE;
+
+
+USE AM_DL_STAGING.COMMON;
+CREATE OR REPLACE PIPE AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE
+AUTO_INGEST = TRUE
+AS COPY INTO AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ATTRIBUTE_STG
+FROM
+(
+    SELECT
+        METADATA$FILENAME        AS FILE_NAME,
+        METADATA$FILE_ROW_NUMBER AS FILE_ROW_NBR,
+        $1::VARIANT              AS FILE_CONTENT,
+        CURRENT_TIMESTAMP::TIMESTAMP_NTZ AS INSERT_TMSTMP
+    FROM
+        @AM_DL_STAGING.COMMON.AM_DL_PG4_RAW_STG/inbound/sai_bloomberg/order-attribute/
+        (FILE_FORMAT => AM_DL_STAGING.COMMON.BBG_BTCA_FILE_FORMAT)
+);
+
+GRANT OPERATE ON PIPE AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE TO ROLE AM_DL_STAGING_COMMON_URW_RL;
+GRANT MONITOR ON PIPE AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE TO ROLE AM_DL_STAGING_COMMON_URR_RL;
+
+ALTER PIPE AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE REFRESH;
+
+
+-- Order Attribute Stream
+USE AM_DL_STAGING.COMMON;
+CREATE OR REPLACE STREAM  AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM ON TABLE BBG_TCA_ORDER_ATTRIBUTE_STG;
+
+GRANT SELECT ON AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM TO ROLE AM_DL_STAGING_COMMON_RW_RL;
+GRANT SELECT ON AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM TO ROLE AM_DL_STAGING_COMMON_RR_RL;
+GRANT OWNERSHIP ON STREAM AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM TO ROLE AM_DL_STAGING_COMMON_DDL_RL COPY CURRENT GRANTS;
+
+-- Order Attribute Task
+
+drop task AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK;
+
+USE AM_DL_STAGING.COMMON;
+CREATE OR REPLACE TASK  AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK
+	SCHEDULE='USING CRON 30 0-23/1 * * * America/New_York'
+	WHEN SYSTEM$STREAM_HAS_DATA('AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM')
+	AS CALL AM_DL_OPERATION.COMMON.EXECUTE_SQL_V2('MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE');
+
+
+ALTER TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK RESUME;
+ALTER PIPE AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE REFRESH;
+
+GRANT MONITOR ON TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK TO ROLE AM_DL_STAGING_COMMON_URR_RL;
+GRANT OPERATE ON TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK TO ROLE AM_DL_STAGING_COMMON_URW_RL;
+
+-- Order Attribute Target Table
+
+USE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA;
+
+select * from MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ATTRIBUTE;
+
+drop table MA_TRD_ORDER_ATTRIBUTE;
+
+create or replace table MA_TRD_ORDER_ATTRIBUTE (
+   ORDER_ID             VARCHAR(52) not null,
+   TRADE_DT             DATE       not null,
+   ORIG_ORDER_ID        VARCHAR(152),
+   PARENT_ORDER_ID      VARCHAR(152),
+   BUY_SELL_CD          VARCHAR(152),
+   ORDER_QTY            VARCHAR(152),
+   CUSIP                VARCHAR(152),
+   ISIN                 VARCHAR(152),
+   TICKER               VARCHAR(152),
+   PRIMARY_EXCHANGE_CD  VARCHAR(152),
+   SECURITY_TYPE_CD     VARCHAR(152),
+   SECTOR_CD            VARCHAR(152),
+   TRADE_ORDER_NBR      VARCHAR(152),
+   TRADE_PLACEMENT_NBR  VARCHAR(152),
+   TRADE_USD_AMT        VARCHAR(152),
+   TRADE_EXEC_NBR       VARCHAR(152),
+   TRADE_COUNTRY_CD     VARCHAR(152),
+   RULE_ID              VARCHAR(152),
+   RULE_NAME            VARCHAR(150),
+   RULE_WHEEL_NAME      VARCHAR(150),
+   RULE_TYPE_CD         VARCHAR(152),
+   UPDATE_ID            VARCHAR(30) not null,
+   UPDATE_TMSTMP        TIMESTAMP_NTZ(9) not null,
+   constraint MA_TRD_ORDER_ATTRIBUTE_PK primary key (ORDER_ID, TRADE_DT)
+       not enforced
+);
+
+alter table MA_TRD_ORDER_ATTRIBUTE set comment = 'This table captures the primary attributes of a specific order, providing detailed information on the main characteristics associated with each order.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column ORDER_ID comment 'This column contains the unique order ID created in Bloomberg for every order in a placement sent by Fidelity.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_DT comment 'The date on which Bloomberg executes the trade for the specified Placement.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column ORIG_ORDER_ID comment 'A unique identifier assigned by Fidelity for each order under a placement. This identifier is used for orders or trades involving the sale or purchase of a large quantity of securities, known as block trades. These trades are arranged at a specific price between parties outside of open markets to minimize the impact on market prices. Also referred to as  Block Order. ';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column PARENT_ORDER_ID comment 'This column contains the unique parent order ID created in Bloomberg for a group of orders in a placement.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column BUY_SELL_CD comment 'This column indicates the direction of the trade, indicating whether the order is a buy or a sell.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column ORDER_QTY comment 'This column contains the total quantity of items included in the order.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column CUSIP comment 'The unique identifier assigned to the traded security.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column ISIN comment 'International Securities Identification Number(ISIN) is the unique code assigned to securities for international identification.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TICKER comment 'An individual alternate identifier assignment given to a tradable entity.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column PRIMARY_EXCHANGE_CD comment 'Primary exchange that serves as the pricing reference for the security used by Bloomberg.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column SECURITY_TYPE_CD comment 'The security type of the underlying security.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column SECTOR_CD comment 'The code that identifies the sector in which the security will be traded.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_ORDER_NBR comment 'Represents the total count of trade orders executed within a specified grouping.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_PLACEMENT_NBR comment 'Represents the total count of trade placements executed within a specified grouping.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_USD_AMT comment 'Represents the total monetary value of traded securities, converted to USD.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_EXEC_NBR comment 'Represents the total count of trade fills executed within a specified grouping.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column TRADE_COUNTRY_CD comment 'The two-letter country code of the exchange where the security is traded.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column RULE_ID comment 'The unique identifier for the internal Bloomberg rule used to categorize the placement order.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column RULE_NAME comment 'The specific name assigned to the rule.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column RULE_WHEEL_NAME comment 'The designated name of the rule wheel.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column RULE_TYPE_CD comment 'The specific type assigned to the rule.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column UPDATE_ID comment 'The identifier of the system, person or process that last updated the associated entry in a table.';
+
+alter table MA_TRD_ORDER_ATTRIBUTE modify column UPDATE_TMSTMP comment 'The date and time on which the associated entry in a table was last updated.';
+
+GRANT SELECT ON MA_TRD_ORDER_ATTRIBUTE TO ROLE AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_RR_RL;
+GRANT ALL ON MA_TRD_ORDER_ATTRIBUTE TO ROLE AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_RW_RL;
+GRANT OWNERSHIP ON TABLE MA_TRD_ORDER_ATTRIBUTE TO ROLE AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_DDL_RL COPY CURRENT GRANTS;
+
+-- Order Attribute View
+
+use AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA;
+
+CREATE OR REPLACE VIEW MA_TRD_ORDER_ATTRIBUTE_V AS SELECT * FROM  MA_TRD_ORDER_ATTRIBUTE;
+
+GRANT SELECT ON VIEW MA_TRD_ORDER_ATTRIBUTE_V TO AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_RR_RL;
+GRANT SELECT ON VIEW MA_TRD_ORDER_ATTRIBUTE_V TO AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_URR_RL;
+GRANT OWNERSHIP ON VIEW MA_TRD_ORDER_ATTRIBUTE_V TO ROLE AM_DL_RAW_MA_MA_TRD_ANALYTICS_DATA_DDL_RL COPY CURRENT GRANTS;
+
+-- Order Attribute Process
+SELECT * FROM am_dl_operation.common.am_dl_process where AM_DL_PROCESS_TYPE_CD = 'SNOWPIPE' and AM_DL_PROCESS_NAME = 'MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE';
+
+-- AM_DL_OPERATION.COMMON.AM_DL_PROCESS_STEP
+use AM_DL_OPERATION.COMMON;
+--Step-1 To insert the process
+merge into am_dl_operation.common.am_dl_process tgt
+    using (select 'MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE' am_dl_process_name,
+                  'Process for BBG TCA Order Attribute data' am_dl_process_desc,
+                  'SNOWPIPE' am_dl_process_type_cd,
+                  CURRENT_USER as update_id,
+                  CURRENT_TIMESTAMP::TIMESTAMP_NTZ update_tmstmp,
+                   'SAI_APS' owner_cd) src
+    on(tgt.am_dl_process_name = src.am_dl_process_name) when not matched then
+        insert
+            (am_dl_process_name,
+             am_dl_process_desc,
+             am_dl_process_type_cd,
+             update_id,
+             update_tmstmp,
+             owner_cd)
+            values (
+                       src.am_dl_process_name,
+                       src.am_dl_process_desc,
+                       src.am_dl_process_type_cd,
+                       src.update_id,
+                       src.update_tmstmp,
+                       src.owner_cd );
+                       
+--Step-2 To insert the process step
+SELECT * FROM am_dl_operation.common.am_dl_process_step where execution_order_nbr = 1
+and am_dl_process_step_desc like 'Snowpipe Ingestion Process for BBG Trade%';
+
+use AM_DL_OPERATION.COMMON;
+
+merge into am_dl_operation.common.am_dl_process_step tgt
+    using
+        (select 'Snowpipe Ingestion Process for BBG Trade Cost Analysis data ingestion for order attribute' as am_dl_process_step_desc,
+                am_dl_process_id,
+                1 as execution_order_nbr,
+                'SQL' as task_sql_type_cd,
+                'merge into am_dl_raw_ma.ma_trd_analytics_data.ma_trd_order_attribute tgt
+                 using
+               ( with order_data as        (select
+                                            file_content record_data, file_name
+                                            from am_dl_staging.common.am_dl_bbg_tca_order_attribute_stream  record_stream
+                                            where metadata$action=''INSERT''
+                                            )
+                   select distinct
+                    		record_data:"Order"                                 as   ORDER_ID,
+                            record_data:"TradeDt"                               as   TRADE_DT,
+                            record_data:"OrigOrdIdPx"                           as   ORIG_ORDER_ID,              
+ 						    record_data:"ParentOrderid"                         as   PARENT_ORDER_ID,
+							record_data:"Sector"                                as   SECTOR_CD,
+							record_data:"SecType"                               as   SECURITY_TYPE_CD,
+							record_date:"PrimExch"                              as   PRIMARY_EXCHANGE,
+							record_data:"Tkr"                                   as   TICKER,
+							record_data:"ISIN"                                  as   ISIN,
+							record_data:"Cusip"                                 as   CUSIP,
+							record_data:"Cntry"                                 as   TRADE_COUNTRY_CD,
+							record_data:"Size"                                  as   ORDER_QTY,
+							record_data:"ValueUSD"                              as   TRADE_USD_AMT,
+							record_data:"Side"                                  as   BUY_SELL_CD,
+							record_data:"NumOrders"                             as   TRADE_ORDER_NBR,
+							record_data:"NumPlcs"                               as   TRADE_PLACEMENT_NBR,
+							record_data:"Number Trades"                         as   TRADE_EXEC_NBR,
+							record_data:"RBLDRuleID"                            as   RULE_ID,
+                            record_data:"RBLDRuleName"                          as   RULE_NAME,
+                            record_data:"RBLDRuleType"                          as   RULE_TYPE,
+                            record_data:"RBLDWheel"                             as   RULE_WHEEL_NAME,
+                            CURRENT_USER                                        as UPDATE_ID,
+                            CURRENT_TIMESTAMP::TIMESTAMP_NTZ                    as UPDATE_TMSTMP
+                    from order_data
+					qualify ROW_NUMBER() OVER (PARTITION BY order_id, trade_dt
+                                       ORDER BY file_name DESC ) = 1
+                   ) src
+                 ON
+                    src.ORDER_ID  = tgt.ORDER_ID
+                    and src.TRADE_DT  = tgt.TRADE_DT
+                  when matched then
+                  update
+                  set
+                         tgt.ORIG_ORDER_ID      =      src.ORIG_ORDER_ID,          
+ 						 tgt.PARENT_ORDER_ID    =      src.PARENT_ORDER_ID,
+						 tgt.SECTOR_CD          =      src.SECTOR_CD,
+						 tgt.SECURITY_TYPE_CD   =      src.SECURITY_TYPE_CD,
+						 tgt.PRIAMRY_EXCHANGE   =      src.PRIMARY_EXCHANGE,
+						 tgt.TICKER             =      src.TICKER,
+						 tgt.ISIN               =      src.ISIN,
+						 tgt.CUSIP              =      src.CUSIP,
+						 tgt.TRADE_COUNTRY_CD   =      src.TRADE_COUNTRY_CD,
+						 tgt.ORDER_QTY          =      src.ORDER_QTY,
+						 tgt.TRADE_USD_AMT      =      src.TRADE_USD_AMT,
+						 tgt.BUY_SELL_CD        =      src.BUY_SELL_CD,
+						 tgt.TRADE_ORDER_NBR    =      src.TRADE_ORDER_NBR,
+						 tgt.TRADE_PLACEMENT_NBR =     src.TRADE_PLACEMENT_NBR,
+						 tgt.TRADE_EXEC_NBR      =     src.TRADE_EXEC_NBR,
+						 tgt.RULE_ID             =     src.RULE_ID,
+                         tgt.RULE_NAME           =     src.RULE_NAME,
+                         tgt.RULE_TYPE           =     src.RULE_TYPE,
+                         tgt.RULE_WHEEL_NAME     =     src.RULE_WHEEL_NAME,
+                         tgt.UPDATE_ID           =     src.UPDATE_ID,
+                         tgt.UPDATE_TMSTMP       =     src.UPDATE_TMSTMP
+                  when not matched then
+                    insert
+                    (
+                       ORDER_ID,
+                       TRADE_DT,
+                       ORIG_ORDER_ID,
+					   PARENT_ORDER_ID,
+					   SECTOR_CD,
+					   SECURITY_TYPE_CD,
+					   PRIAMRY_EXCHANGE,
+					   TICKER,
+					   ISIN,
+					   CUSIP,
+					   TRADE_COUNTRY_CD,
+					   ORDER_QTY,
+					   TRADE_USD_AMT,
+					   BUY_SELL_CD,
+					   TRADE_ORDER_NBR,
+					   TRADE_PLACEMENT_NBR,
+					   TRADE_EXEC_NBR,
+					   RULE_ID,
+					   RULE_NAME,
+					   RULE_TYPE,
+					   RULE_WHEEL_NAME,
+					   UPDATE_ID,
+					   UPDATE_TMSTMP
+					 )
+                    values
+                    (
+                       src.ORDER_ID,
+                       src.TRADE_DT,
+                       src.ORIG_ORDER_ID,      
+					   src.PARENT_ORDER_ID,
+					   src.SECTOR_CD,
+					   src.SECURITY_TYPE_CD,
+					   src.PRIMARY_EXCHANGE,
+					   src.TICKER,
+					   src.ISIN,
+					   src.CUSIP,
+					   src.TRADE_COUNTRY_CD,
+					   src.ORDER_QTY,
+					   src.TRADE_USD_AMT,
+					   src.BUY_SELL_CD,
+					   src.TRADE_ORDER_NBR,
+					   src.TRADE_PLACEMENT_NBR,
+					   src.TRADE_EXEC_NBR,
+					   src.RULE_ID,
+					   src.RULE_NAME,
+					   src.RULE_TYPE,
+					   src.RULE_WHEEL_NAME,
+					   src.UPDATE_ID,
+					   src.UPDATE_TMSTMP
+					);' as task_sql_txt,
+                CURRENT_USER as update_id,
+                to_timestamp_ntz (current_timestamp) as update_tmstmp
+         from am_dl_operation.common.am_dl_process where am_dl_process_name = 'MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE') src
+    ON
+                src.am_dl_process_id         = tgt.am_dl_process_id
+            and src.execution_order_nbr  = tgt.execution_order_nbr
+    when matched then
+        update
+            set
+                tgt.am_dl_process_step_desc = src.am_dl_process_step_desc,
+                tgt.task_sql_type_cd        = src.task_sql_type_cd,
+                tgt.task_sql_txt            = src.task_sql_txt,
+                tgt.update_id               = src.update_id,
+                tgt.update_tmstmp           = src.update_tmstmp
+    when not matched then
+        insert
+            (
+             am_dl_process_step_desc,
+             am_dl_process_id,
+             execution_order_nbr,
+             task_sql_type_cd,
+             task_sql_txt,
+             update_id,
+             update_tmstmp
+                )
+            values
+                (
+                    src.am_dl_process_step_desc,
+                    src.am_dl_process_id,
+                    src.execution_order_nbr,
+                    src.task_sql_type_cd,
+                    src.task_sql_txt,
+                    src.update_id,
+                    src.update_tmstmp
+                );
+
+use AM_DL_OPERATION.COMMON;
+
+merge into am_dl_operation.common.am_dl_ingestion_detail tgt
+    using
+        (with
+             qry as
+                 (select current_account() account_name,
+                         am_dl_process_id am_dl_process_id,
+                         'AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ATTRIBUTE' target_table_name,
+                         's3://amt-adapt-cmn-raw-ENV-us-east-1/inbound/sai_bloomberg/order_attribute/' source_location_name,
+                         'AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_PIPE' pipe_name,
+                         'AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_STREAM' stream_name,
+                         'AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK' task_name,
+                         CURRENT_USER update_id,
+                         current_timestamp::timestamp_ntz update_tmstmp,
+                          'AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ATTRIBUTE_STG' stage_table_name,
+						 'Y' PIPE_ALERT_FLAG,
+						 'Y' TASK_NOTIFICATION_IND,
+						 'N' PIPE_NOTIFICATION_IND,
+						 'EMAIL' NOTIFICATION_TYPE,
+						 '[{"ALERT_TYPE_CD": "EMAIL","ALERT_INSTRUCTION_TXT": {"EMAIL_RECIPIENTS": "AMTECHMANAGEDACCOUNTSTRADINGSUPPORT@fmr.com"}},{"ALERT_TYPE_CD": "SERVICE_NOW","ALERT_INSTRUCTION_TXT": {"CI": "AP126600","IMPACT": "4 - Low","URGENCY": "3 - Low","SNOW_GROUP": "amt sat rls inc"}}]' NOTIFICATION_TYPE_VALUE
+                  from am_dl_operation.common.am_dl_process
+                  where am_dl_process_name = 'MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE'
+                 )
+         select
+             am_dl_process_id,
+             target_table_name,
+             case
+                 when account_name =  'FMRAMTECHDEV' then replace (source_location_name , 'ENV' , 'dev'  )
+                 when account_name =  'FMRAMTECHPREPROD' then replace (source_location_name , 'ENV' , 'uat'  )
+                 when account_name =  'FMRAMTECH' then replace (source_location_name , 'ENV' , 'prd'  )
+                 end as source_location_txt,
+             pipe_name,
+             stage_table_name ,
+             stream_name ,
+             task_name,
+             update_id,
+             update_tmstmp,
+			 PIPE_ALERT_FLAG,
+			 TASK_NOTIFICATION_IND,
+			 PIPE_NOTIFICATION_IND,
+			 NOTIFICATION_TYPE,
+			 NOTIFICATION_TYPE_VALUE
+         from
+             qry) src
+    ON
+                src.am_dl_process_id   = tgt.am_dl_process_id and
+                src.target_table_name  = tgt.target_table_name
+    when matched then
+        update
+            set
+                tgt.source_location_txt = src.source_location_txt,
+                tgt.pipe_name = src.pipe_name,
+                tgt.stage_table_name = src.stage_table_name,
+                tgt.stream_name = src.stream_name,
+                tgt.task_name = src.task_name,
+                tgt.update_id = src.update_id,
+                tgt.update_tmstmp = src.update_tmstmp,
+                tgt.PIPE_ALERT_FLAG = src.PIPE_ALERT_FLAG,
+                tgt.TASK_NOTIFICATION_IND = src.TASK_NOTIFICATION_IND,
+                tgt.PIPE_NOTIFICATION_IND = src.PIPE_NOTIFICATION_IND,
+                tgt.NOTIFICATION_TYPE = src.NOTIFICATION_TYPE,
+                tgt.NOTIFICATION_TYPE_VALUE = src.NOTIFICATION_TYPE_VALUE
+    when not matched then
+        insert
+            (
+             am_dl_process_id,
+             target_table_name,
+             source_location_txt,
+             pipe_name,
+             stage_table_name,
+             stream_name,
+             task_name,
+             update_id,
+             update_tmstmp,
+			 PIPE_ALERT_FLAG,
+			 TASK_NOTIFICATION_IND,
+			 PIPE_NOTIFICATION_IND,
+			 NOTIFICATION_TYPE,
+			 NOTIFICATION_TYPE_VALUE)
+            values (
+                       am_dl_process_id,
+                       target_table_name,
+                       source_location_txt,
+                       pipe_name,
+                       stage_table_name,
+                       stream_name,
+                       task_name,
+                       update_id,
+                       update_tmstmp,
+			           PIPE_ALERT_FLAG,
+			           TASK_NOTIFICATION_IND,
+			           PIPE_NOTIFICATION_IND,
+			           NOTIFICATION_TYPE,
+			           NOTIFICATION_TYPE_VALUE);
+
+select * from AM_DL_STAGING.COMMON.BBG_TCA_ORDER_STG; 
+
+select * from AM_DL_STAGING.COMMON.BBG_TCA_PLACEMENT_STG;   
+
+SELECT
+        METADATA$FILENAME        AS FILE_NAME,
+        METADATA$FILE_ROW_NUMBER AS FILE_ROW_NBR,
+        $1::VARIANT              AS FILE_CONTENT,
+        CURRENT_TIMESTAMP::TIMESTAMP_NTZ AS INSERT_TMSTMP
+    FROM
+        @AM_DL_STAGING.COMMON.AM_DL_PG4_RAW_STG/inbound/sai_bloomberg/order-attribute/
+        (FILE_FORMAT => AM_DL_STAGING.COMMON.BBG_BTCA_FILE_FORMAT);
+
+        SELECT * FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_STG;
+
+        SELECT * FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ATTRIBUTE_STG;
+        
+      --  DELETE FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ATTRIBUTE_STG;
+
+SELECT * FROM am_dl_operation.common.am_dl_ingestion_detail;
+        
+insert into AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ATTRIBUTE_STG(file_name, file_row_nbr, file_content,insert_tmstmp) 
+select 'ManTest1',1, parse_json($${"Order": "1521381032", 
+ 						    "TradeDt": "2024-12-05T00:00:00.000+00:00",
+                            "OrigOrdIdPx": "O.EMS.1315.48642501.20241205",
+ 						    "ParentOrderid": "O.EMS.1315.48642501.20241205",
+							"Sector": "N.A.",
+                            "SecType": "ETP",                          
+							"PrimExch": "UP",                         
+							"Tkr": "JPST",                              
+							"ISIN": "US46641Q8371",                             
+							"Cntry": "US",                          
+							"Size": "127.0",                             
+							"ValueUSD": "6405.245",                       
+							"Side": "S",                            
+							"NumOrders": "5.0",                   
+							"RBLDRuleID": "1726680375 8388609",                      
+                            "RBLDRuleName": "CSTOCK_LRG_05ADV_FDLM  U-team rule",               
+                            "RBLDWheel": "N.A.",
+                            "Update_id": "A667309",
+                            "Update_tmstmp": "2025-05-16 15:26:09.094 -0400"}$$),Current_Timestamp;
+
+SELECT CURRENT_TIMESTAMP FROM DUAL;
+
+DESCRIBE TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK;
+                            
+EXECUTE TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK;
+
+SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
+TASK_NAME=>'AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK'))
+WHERE SCHEDULED_TIME > CURRENT_DATE;
+
+CALL AM_DL_OPERATION.COMMON.EXECUTE_SQL_V2('MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE');
+
+describe am_dl_operation.common.execute_sql_v2;
+
+USE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA;
+
+select * from MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ATTRIBUTE;
+
+
+JavaScript execution error: Uncaught Task Sql Failed: 1003
+ State: 42000
+ Message: SQL compilation error:
+syntax error line 35 at position 6 unexpected ')'.
+syntax error line 35 at position 8 unexpected 'UPDATE_TS'.
+Stacktrace:
+Statement.execute, line 261 position 61 in EXECUTE_SQL_V2 at '                throw main_run_err;' position 16
+stackstrace: 
+EXECUTE_SQL_V2 line: 338
+
+DESCRIBE am_dl_operation.common.am_dl_process_step;
+
+use AM_DL_OPERATION.COMMON;
+
+select *
+  from am_dl_operation.common.am_dl_process tgt
+ where am_dl_process_name = 'MA_TRD_ANALYTICS_DATA_TCA_ORDER_ATTRIBUTE';
+
+select *
+  from am_dl_operation.common.am_dl_ingestion_detail
+ where am_dl_process_id not in (select am_dl_process_id from am_dl_operation.common.am_dl_process);
+   and target_table_name = 'AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ATTRIBUTE';
+
+ AM_DL_OPERATION.COMMON.AM_DL_INGESTION_DETAILAM_DL_OPERATION.COMMON.AM_DL_INGESTION_DETAIL
+
+ DESCRIBE TABLE AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ACCOUNT_STG;
+
+ SELECT * FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ACCOUNT_STG;
+
+ SELECT COUNT(*) FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ACCOUNT_STG --38654
+         WHERE FILE_CONTENT LIKE '%2025-05-27%';
+
+ SELECT COUNT(*) FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_ACCOUNT_STG --17422
+         WHERE FILE_CONTENT LIKE '%2025-05-29%';
+
+USE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA;
+
+ SELECT * FROM MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ACCOUNT;
+
+ SELECT * FROM MA_TRD_ANALYTICS_DATA.MA_TRD_PLACEMENT_V;
+  
+ SELECT COUNT(*) FROM MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ACCOUNT 
+ WHERE TRADE_DT = '2025-05-29';
+ 
+ SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
+TASK_NAME=>'AM_DL_BBG_TCA_ORDER_ACCOUNT_TASK'))
+WHERE 1=1
+
+  AND SCHEDULED_TIME > CURRENT_DATE-5;
+
+SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
+TASK_NAME=>'AM_DL_BBG_TCA_ORDER_ACCOUNT_TASK'))
+WHERE 1=1
+  AND SCHEDULED_TIME > CURRENT_DATE-5;
+  --ERROR_CODE = 0040003;
+
+CALL AM_DL_OPERATION.COMMON.EXECUTE_SQL_V2('MA_TRD_ANALYTICS_DATA_TCA_ORDER_ACCOUNT');
+
+DESCRIBE MA_TRD_ANALYTICS_DATA_TCA_ORDER_ACCOUNT;
+
+
+-- Validation scripts
+
+-- should return 1
+SELECT COUNT(1) FROM AM_DL_RAW_MA.INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'MA_TRD_ORDER_ACCOUNT';
+
+-- should return 1
+SELECT COUNT(1) FROM AM_DL_RAW_MA.INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'MA_TRD_ORDER_ATTRIBUTE';
+
+SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK);
+
+TASK_NAME=>'AM_DL_BBG_TCA_ORDER_ATTRIBUTE_TASK'));
+
+MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_ACCOUNT 
+
+-- Alter table (check if column exists)
+execute immediate
+
+declare
+	column_exists number;
+begin
+    SELECT COUNT(*) INTO column_exists
+	  FROM "AM_DL_RAW_MADB"."INFORMATION_SCHEMA"."COLUMNS" 
+	 WHERE column_name = 'HIGHEST_COST_IND'
+	   AND TABLE_NAME = 'MARLS_ORDER'
+       AND table_schema = 'MA_ORD_EXEC_ARCH';
+
+    if (column_exists = 0)
+    then
+	  ALTER TABLE AM_DL_RAW_MADB.MA_ORD_EXEC_ARCH.MARLS_ORDER ADD COLUMN HIGHEST_COST_IND VARCHAR(1);
+
+	  comment on column MARLS_ORDER.HIGHEST_COST_IND is 
+       'Indicates whether the accounts sell orders follow the High Cost (HICO) methodology. A value of ''Y'' means the lots being sold are in descending order of purchase price (i.e., HICO-compliant) and are eligible for roll-up at the account level. A value of ''N'' means the lots are not in HICO order and should not be rolled up.';
+     return 'column added';
+    ELSE
+     return 'column already exists';
+    end if;
+EXCEPTION
+WHEN other THEN
+return object_construct('Error type', 'Other error',
+                            'SQLCODE', sqlcode,
+                            'SQLERRM', sqlerrm,
+                            'SQLSTATE', sqlstate);
+end;
+
+
+drop table MA_TRD_PLACEMENT;
+
+DESCRIBE TABLE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_PLACEMENT;
+
+DESCRIBE TABLE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER;
+
+SELECT * FROM AM_DL_STAGING.COMMON.BBG_TCA_ORDER_STG ORDER BY INSERT_TMSTMP DESC;
+
+SELECT * FROM AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_ORDER_V;
+
+SELECT * FROM INFORMATION_SCHEMA.TABLES;
+
+SHOW TABLES IN ACCOUNT;
+
+SHOW DATABASES IN ACCOUNT;
+
+USE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA;
+
+SELECT * FROM AM_DL_STAGING.COMMON.BBG_TCA_PLACEMENT_STG ORDER BY INSERT_TMSTMP DESC;
+
+ALTER TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_PLACEMENT_TASK RESUME;
+
+ALTER PIPE AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_PLACEMENT_PIPE REFRESH;
+
+EXECUTE TASK AM_DL_STAGING.COMMON.AM_DL_BBG_TCA_PLACEMENT_TASK;
+ 
+alter table AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_PLACEMENT
+
+ALTER TABLE AM_DL_RAW_MA.MA_TRD_ANALYTICS_DATA.MA_TRD_PLACEMENT ALTER COLUMN PLACEMENT_DURATION_TS SET DATA TYPE TIME;
+ 
+select * --file_content record_data, file_name
+  from am_dl_staging.common.am_dl_bbg_tca_placement_stream  record_stream
+ order by insert_tmstmp desc;
+  
+  where metadata$action='INSERT';
+
+show streams;
+
+USE AM_DL_STAGING.COMMON;
+
+desc stream am_dl_bbg_tca_placement_stream;
+  
+select * 
+  from am_dl_operation.common.am_dl_process_step
+ order by update_tmstmp desc;
+
+ select * --task_sql_txt
+   from am_dl_operation.common.am_dl_process_step ps   
+  where am_dl_process_step_desc = 'Snowpipe Ingestion Process for BBG Trade Cost Analysis data ingestion for placement data';
+    and update_tmstmp = (select max(update_tmstmp) from am_dl_operation.common.am_dl_process_step);

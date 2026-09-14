@@ -1,0 +1,69 @@
+CREATE OR REPLACE FUNCTION REPORTING_DB.EDW.UDF_GET_COUNTRY_ISO("LAT" FLOAT, "LON" FLOAT)
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Please pass in a latitude coordinate and a longitude coordinate and I will return a Country ISO value.'
+AS ' 
+    select 
+      dt.COUNTRY_ISO
+    from 
+        (select 
+            COUNTRY_ISO, 
+            st_contains(POLYGON, 
+                        -- This looks reversed but it is correct
+                        TO_GEOGRAPHY(''POINT('' || cast( lon as varchar(16777216)) || '' '' || cast(lat as varchar(16777216)) || '')'' )) as INCLUDES 
+          from 
+            REPORTING_DB.EDW_TABLES.LOOKUP_COUNTRY
+        ) dt 
+     where 
+        dt.INCLUDES = true 
+  ';
+
+
+
+CREATE OR REPLACE FUNCTION REPORTING_DB.EDW.UDF_VARCHAR_TO_DATE("COL_NAME" VARCHAR(16777216), "FORMAT_DATE" VARCHAR(16777216))
+RETURNS DATE
+LANGUAGE SQL
+COMMENT='This is useful for turning varchar dates (SAP) into date data type as it handles for the 0000000 case'
+AS '
+    SELECT
+    	-- If it is all 0s return null
+    	CASE
+        	WHEN col_name = REPEAT(0, (SELECT length(format_date))) THEN NULL
+        	WHEN TRIM(col_name) = '''' THEN NULL
+        	ELSE TO_DATE(col_name, format_date)
+        END
+    ';
+
+-- Regular Function
+
+CREATE OR REPLACE FUNCTION PRESENTATION.EDW_TABLES.F_FORMAT_AS_VERSIONSTRING("VERSIONNUMBER" VARCHAR)
+RETURNS VARCHAR
+LANGUAGE JAVASCRIPT
+AS 'let padChar = "0";
+  var s = String(Number(VERSIONNUMBER));
+  while (s.length <= 16) {
+    s = padChar + s;
+  }
+  let len = s.length;
+  console.log(s, len);
+  let part1 = String(Number(s.substr(len - 16, 4)));
+  let part2 = String(Number(s.substr(len - 12, 4)));
+  let part3 = String(Number(s.substr(len - 8, 4)));
+  let part4 = String(Number(s.substr(len - 4, 4)));
+
+  while (part1.length < 2) {
+    part1 = padChar + part1;
+  }
+  while (part2.length < 2) {
+    part2 = padChar + part2;
+  }
+  while (part3.length < 2) {
+    part3 = padChar + part3;
+  }
+  while (part4.length < 2) {
+    part4 = padChar + part4;
+  }
+
+  return part1 + "." + part2 + "." + part3 + "." + part4;
+';
+
